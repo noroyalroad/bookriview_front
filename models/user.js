@@ -1,4 +1,7 @@
 const mongoose = require("mongoose");
+const bcrypt = require("bcrypt");
+const saltRounds = 10;
+const jwt = require("jsonwebtoken");
 
 const userSchema = mongoose.Schema({
   name: {
@@ -24,12 +27,68 @@ const userSchema = mongoose.Schema({
     default: 0,
   },
   image: String,
-  Token: {
+  token: {
     type: String,
   },
   tokenexp: {
     type: Number,
   },
 });
+
+userSchema.pre("save", function (next) {
+  var user = this;
+
+  if (user.isModified("password")) {
+    bcrypt.genSalt(saltRounds, function (err, salt) {
+      if (err) return next(err);
+
+      bcrypt.hash(user.password, salt, function (err, hash) {
+        if (err) return next(err);
+        user.password = hash;
+        next();
+      });
+    });
+  } else {
+    next();
+  }
+});
+
+userSchema.methods.comparePassword = function (plainPassword, cb) {
+  bcrypt.compare(plainPassword, this.password, function (err, isMatch) {
+    if (err) return cb(err);
+    cb(null, isMatch);
+  });
+};
+userSchema.methods.generateToken = function (cb) {
+  var user = this;
+  var token = jwt.sign(user._id.toHexString(), "SecretToken");
+
+  user.token = token;
+  user
+    .save()
+    .then((user) => {
+      // 저장 성공 시 실행되는 코드
+      cb(null, user);
+    })
+    .catch((err) => {
+      // 에러 발생 시 실행되는 코드
+      cb(err);
+    });
+};
+userSchema.statics.findByToken = function (token, cb) {
+  var user = this;
+
+  jwt.verify(token, "SecretToken", function (err, decode) {
+    user
+      .findOne({ _id: decode, token: token })
+      .then((user) => {
+        cb(null, user);
+      })
+      .catch((err) => {
+        cb(err);
+      });
+  });
+};
+
 const User = mongoose.model("User", userSchema);
 module.exports = { User };
